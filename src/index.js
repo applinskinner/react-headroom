@@ -38,6 +38,19 @@ export default class Headroom extends Component {
     calcHeightOnResize: true,
   };
 
+  static getDerivedStateFromProps (props, state) {
+    if (props.disable && state.state !== 'unfixed') {
+      return {
+        translateY: 0,
+        className: 'headroom headroom--unfixed headroom-disable-animation',
+        animation: false,
+        state: 'unfixed',
+      }
+    }
+
+    return null
+  }
+
   constructor (props) {
     super(props)
     // Class variables.
@@ -63,20 +76,6 @@ export default class Headroom extends Component {
     }
   }
 
-  componentWillReceiveProps (nextProps) {
-    if (nextProps.disable && !this.props.disable) {
-      this.unfix()
-      this.props.parent().removeEventListener('scroll', this.handleScroll)
-      this.props.parent().removeEventListener('resize', this.handleResize)
-    } else if (!nextProps.disable && this.props.disable) {
-      this.props.parent().addEventListener('scroll', this.handleScroll)
-
-      if (this.props.calcHeightOnResize) {
-        this.props.parent().addEventListener('resize', this.handleResize)
-      }
-    }
-  }
-
   shouldComponentUpdate (nextProps, nextState) {
     return (
       !shallowequal(this.props, nextProps) ||
@@ -84,10 +83,26 @@ export default class Headroom extends Component {
     )
   }
 
-  componentDidUpdate (prevProps) {
+  componentDidUpdate (prevProps, prevState) {
     // If children have changed, remeasure height.
     if (prevProps.children !== this.props.children) {
       this.setHeightOffset()
+    }
+
+    // Add/remove event listeners when re-enabled/disabled
+    if (!prevProps.disable && this.props.disable) {
+      this.props.parent().removeEventListener('scroll', this.handleScroll)
+      this.props.parent().removeEventListener('resize', this.handleResize)
+
+      if (prevState.state !== 'unfixed' && this.state.state === 'unfixed') {
+        this.props.onUnfix()
+      }
+    } else if (prevProps.disable && !this.props.disable) {
+      this.props.parent().addEventListener('scroll', this.handleScroll)
+
+      if (this.props.calcHeightOnResize) {
+        this.props.parent().addEventListener('resize', this.handleResize)
+      }
     }
   }
 
@@ -101,7 +116,7 @@ export default class Headroom extends Component {
 
   setHeightOffset = () => {
     this.setState({
-      height: this.inner.offsetHeight,
+      height: this.inner ? this.inner.offsetHeight : '',
     })
     this.resizeTicking = false
   }
@@ -207,10 +222,19 @@ export default class Headroom extends Component {
     this.setState({
       translateY: '-100%',
       className: 'headroom headroom--unpinned',
-    }, () => {
-      setTimeout(() => {
-        this.setState({ state: 'unpinned' })
-      }, 0)
+      animation: true,
+      state: 'unpinned',
+    })
+  }
+
+  unpinSnap = () => {
+    this.props.onUnpin()
+
+    this.setState({
+      translateY: '-100%',
+      className: 'headroom headroom--unpinned headroom-disable-animation',
+      animation: false,
+      state: 'unpinned',
     })
   }
 
@@ -220,6 +244,7 @@ export default class Headroom extends Component {
     this.setState({
       translateY: 0,
       className: 'headroom headroom--pinned',
+      animation: true,
       state: 'pinned',
     })
   }
@@ -229,7 +254,8 @@ export default class Headroom extends Component {
 
     this.setState({
       translateY: 0,
-      className: 'headroom headroom--unfixed',
+      className: 'headroom headroom--unfixed headroom-disable-animation',
+      animation: false,
       state: 'unfixed',
     })
   }
@@ -249,6 +275,8 @@ export default class Headroom extends Component {
         this.pin()
       } else if (action === 'unpin') {
         this.unpin()
+      } else if (action === 'unpin-snap') {
+        this.unpinSnap()
       } else if (action === 'unfix') {
         this.unfix()
       }
@@ -280,9 +308,9 @@ export default class Headroom extends Component {
       left: 0,
       right: 0,
       zIndex: 1,
-      WebkitTransform: `translateY(${this.state.translateY})`,
-      MsTransform: `translateY(${this.state.translateY})`,
-      transform: `translateY(${this.state.translateY})`,
+      WebkitTransform: `translate3D(0, ${this.state.translateY}, 0)`,
+      MsTransform: `translate3D(0, ${this.state.translateY}, 0)`,
+      transform: `translate3D(0, ${this.state.translateY}, 0)`,
     }
 
     let className = this.state.className
@@ -291,7 +319,7 @@ export default class Headroom extends Component {
     // negative transform when transitioning from 'unfixed' to 'unpinned'.
     // If we don't do this, the header will flash into view temporarily
     // while it transitions from 0 — -100%.
-    if (this.state.state !== 'unfixed') {
+    if (this.state.animation) {
       innerStyle = {
         ...innerStyle,
         WebkitTransition: 'all .2s ease-in-out',
